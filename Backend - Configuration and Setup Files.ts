@@ -1,4 +1,3 @@
-
 // config/config.ts
 import dotenv from 'dotenv';
 import path from 'path';
@@ -188,3 +187,345 @@ export async function connectDatabase(): Promise<void> {
 {
   "compilerOptions": {
     "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
+    "sourceMap": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}
+
+// .env.example
+# Server
+NODE_ENV=development
+PORT=3000
+
+# Database
+MONGODB_URI=mongodb://localhost:27017/autograde
+
+# Redis (for job queue)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# JWT
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+JWT_ACCESS_EXPIRY=15m
+JWT_REFRESH_EXPIRY=7d
+
+# CORS
+CORS_ORIGINS=http://localhost:3001,http://localhost:3000
+
+# Storage (s3 or local)
+STORAGE_TYPE=s3
+AWS_S3_BUCKET=autograde-uploads
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+
+# OCR Services
+GOOGLE_VISION_API_KEY=your-google-vision-api-key
+GOOGLE_PROJECT_ID=your-google-project-id
+
+CLAUDE_API_KEY=your-claude-api-key
+CLAUDE_MODEL=claude-3-sonnet-20240229
+
+# Email (sendgrid or smtp)
+EMAIL_PROVIDER=sendgrid
+EMAIL_FROM=noreply@autograde.com
+SENDGRID_API_KEY=your-sendgrid-api-key
+
+# SMTP (if using smtp instead of sendgrid)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+
+# Logging
+LOG_LEVEL=info
+LOG_FORMAT=json
+
+// .gitignore
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+uploads/
+
+# Docker
+docker-compose.override.yml
+
+// docker-compose.yml
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: autograde
+    volumes:
+      - mongodb_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      MONGODB_URI: mongodb://admin:password@mongodb:27017/autograde?authSource=admin
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./src:/app/src
+      - ./uploads:/app/uploads
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+// Dockerfile
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY src ./src
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+
+# Create uploads directory
+RUN mkdir -p uploads
+
+# Set user to non-root
+USER node
+
+# Expose port
+EXPOSE 3000
+
+# Start the application
+CMD ["node", "dist/server.js"]
+
+// README.md
+# AutoGrade Backend API
+
+Backend service for the AutoGrade automated grading system.
+
+## Features
+
+- 🔐 JWT-based authentication with refresh tokens
+- 📊 Student roster management with CSV/Excel import
+- 📄 PDF grade sheet generation with QR codes
+- 🔍 OCR processing with Google Vision and Claude AI
+- 📦 Batch processing with Bull queue
+- 🗄️ MongoDB database with Mongoose ODM
+- 🚀 Scalable architecture with Redis caching
+- 📧 Email notifications with SendGrid/SMTP
+- 🔒 Security with Helmet, CORS, and rate limiting
+
+## Prerequisites
+
+- Node.js 18+
+- MongoDB 6+
+- Redis 6+
+- Google Vision API key
+- Claude API key (optional)
+- AWS S3 credentials (for file storage)
+
+## Installation
+
+1. Clone the repository
+```bash
+git clone https://github.com/yourusername/autograde-backend.git
+cd autograde-backend
+```
+
+2. Install dependencies
+```bash
+npm install
+```
+
+3. Copy environment variables
+```bash
+cp .env.example .env
+```
+
+4. Configure your `.env` file with your credentials
+
+5. Run database migrations
+```bash
+npm run migrate
+```
+
+## Development
+
+Start the development server:
+```bash
+npm run dev
+```
+
+Run with Docker:
+```bash
+docker-compose up
+```
+
+## API Documentation
+
+### Authentication
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login user
+- `POST /api/auth/refresh-token` - Refresh access token
+- `POST /api/auth/logout` - Logout user
+
+### Rosters
+- `POST /api/rosters/upload` - Upload roster CSV/Excel
+- `POST /api/rosters/import-sheets` - Import from Google Sheets
+- `GET /api/rosters/period/:periodId` - Get roster for period
+- `PUT /api/rosters/period/:periodId` - Update roster
+
+### Grade Sheets
+- `POST /api/gradesheets/generate` - Generate grade sheets
+- `GET /api/gradesheets/:id` - Get grade sheet
+- `GET /api/gradesheets/:id/download` - Download as PDF
+- `POST /api/gradesheets/download-batch` - Download multiple
+
+### Processing
+- `POST /api/process/upload` - Upload and process scanned sheets
+- `GET /api/process/job/:jobId` - Get processing status
+- `POST /api/process/job/:jobId/retry` - Retry failed job
+
+### Export
+- `GET /api/export/csv` - Export grades as CSV
+- `POST /api/export/google-sheets` - Export to Google Sheets
+- `GET /api/export/pdf/report` - Generate grade report
+
+## Testing
+
+Run tests:
+```bash
+npm test
+```
+
+Run tests in watch mode:
+```bash
+npm run test:watch
+```
+
+## Production Deployment
+
+1. Build the application:
+```bash
+npm run build
+```
+
+2. Start the production server:
+```bash
+npm start
+```
+
+## Architecture
+
+```
+src/
+├── config/          # Configuration files
+├── controllers/     # Request handlers
+├── middleware/      # Express middleware
+├── models/         # Mongoose models
+├── routes/         # API routes
+├── services/       # Business logic
+├── utils/          # Utility functions
+└── server.ts       # Application entry point
+```
+
+## License
+
+MIT
