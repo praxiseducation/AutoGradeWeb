@@ -1,0 +1,149 @@
+import { Router, Request, Response } from 'express';
+import { authenticateToken } from '../middleware/auth';
+import { Period } from '../models/Period';
+import { Student } from '../models/Student';
+
+const router = Router();
+
+// Test endpoint (no auth required)
+router.get('/test', async (req: Request, res: Response) => {
+  try {
+    const count = await Period.countDocuments();
+    res.json({ 
+      message: 'API is working!', 
+      timestamp: new Date(),
+      periodCount: count 
+    });
+  } catch (error: any) {
+    res.json({ 
+      message: 'API is working but DB connection failed', 
+      error: error.message 
+    });
+  }
+});
+
+// Get all periods for the user
+router.get('/', authenticateToken as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    console.log('Fetching periods for user:', userId);
+    
+    const periods = await Period.find({ 
+      userId: userId,
+      isActive: true 
+    }).sort('periodNumber');
+    
+    console.log(`Found ${periods.length} periods`);
+    res.json(periods);
+  } catch (error: any) {
+    console.error('Error fetching periods:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch periods', 
+      details: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
+// Get single period with student count
+router.get('/:id', authenticateToken as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const period = await Period.findOne({
+      _id: req.params.id,
+      userId: userId
+    });
+    
+    if (!period) {
+      return res.status(404).json({ error: 'Period not found' });
+    }
+    
+    const studentCount = await Student.countDocuments({
+      periodId: period._id,
+      isActive: true
+    });
+    
+    res.json({ ...period.toObject(), studentCount });
+  } catch (error: any) {
+    console.error('Error fetching period:', error);
+    res.status(500).json({ error: 'Failed to fetch period' });
+  }
+});
+
+// Create new period
+router.post('/', authenticateToken as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { periodNumber, name, academicYear } = req.body;
+    
+    console.log('Creating period:', { userId, periodNumber, name });
+    
+    const period = new Period({
+      userId: userId,
+      periodNumber,
+      name: name || `Period ${periodNumber}`,
+      academicYear
+    });
+    
+    await period.save();
+    console.log('Period created:', period);
+    res.status(201).json(period);
+  } catch (error: any) {
+    console.error('Error creating period:', error);
+    if (error.code === 11000) {
+      res.status(400).json({ error: 'Period number already exists for this academic year' });
+    } else {
+      res.status(500).json({ error: 'Failed to create period', details: error.message });
+    }
+  }
+});
+
+// Update period
+router.put('/:id', authenticateToken as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const period = await Period.findOneAndUpdate(
+      { _id: req.params.id, userId: userId },
+      { name: req.body.name },
+      { new: true }
+    );
+    
+    if (!period) {
+      return res.status(404).json({ error: 'Period not found' });
+    }
+    
+    res.json(period);
+  } catch (error: any) {
+    console.error('Error updating period:', error);
+    res.status(500).json({ error: 'Failed to update period' });
+  }
+});
+
+// Delete period (soft delete)
+router.delete('/:id', authenticateToken as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const period = await Period.findOneAndUpdate(
+      { _id: req.params.id, userId: userId },
+      { isActive: false },
+      { new: true }
+    );
+    
+    if (!period) {
+      return res.status(404).json({ error: 'Period not found' });
+    }
+    
+    // Also deactivate all students in this period
+    await Student.updateMany(
+      { periodId: period._id },
+      { isActive: false }
+    );
+    
+    res.json({ message: 'Period deleted successfully' });
+  } catch (error: any) {
+    console.error('Error deleting period:', error);
+    res.status(500).json({ error: 'Failed to delete period' });
+  }
+});
+
+export default router;
